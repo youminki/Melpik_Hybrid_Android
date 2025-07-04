@@ -88,42 +88,7 @@ class MainActivity : AppCompatActivity() {
                 handler: SslErrorHandler?,
                 error: SslError?
             ) {
-                if (error == null || handler == null) {
-                    handler?.cancel()
-                    return
-                }
-
-                val cert: SslCertificate? = error.certificate
-                val x509Cert: X509Certificate? = try {
-                    cert?.let { SslCertificate.saveState(it)?.getParcelable("x509-certificate") as? X509Certificate }
-                } catch (e: Exception) {
-                    null
-                }
-
-                // 인증서 유효성 검사
-                if (x509Cert != null) {
-                    try {
-                        x509Cert.checkValidity() // 만료, 유효기간 검사
-                        // 추가적으로 error.primaryError가 SSL_UNTRUSTED 등 심각한 오류가 아닌 경우만 허용
-                        if (error.primaryError == SslError.SSL_UNTRUSTED ||
-                            error.primaryError == SslError.SSL_DATE_INVALID ||
-                            error.primaryError == SslError.SSL_EXPIRED ||
-                            error.primaryError == SslError.SSL_IDMISMATCH ||
-                            error.primaryError == SslError.SSL_NOTYETVALID) {
-                            handler.cancel()
-                        } else {
-                            handler.cancel() // 기타 오류도 취소
-                        }
-                    } catch (e: CertificateExpiredException) {
-                        handler.cancel()
-                    } catch (e: CertificateNotYetValidException) {
-                        handler.cancel()
-                    } catch (e: Exception) {
-                        handler.cancel()
-                    }
-                } else {
-                    handler.cancel()
-                }
+                handler?.cancel() // SSL 오류 발생 시 무조건 연결 차단
             }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url.toString()
