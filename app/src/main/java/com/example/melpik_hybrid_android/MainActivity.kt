@@ -3,6 +3,7 @@ package com.example.melpik_hybrid_android
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -28,6 +29,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
 import java.security.cert.CertificateExpiredException
 import java.security.cert.CertificateNotYetValidException
 import java.security.cert.X509Certificate
@@ -35,6 +37,7 @@ import java.security.cert.X509Certificate
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
+    private lateinit var sharedPreferences: SharedPreferences
     private val url = "https://me1pik.com"
     private val permissions = arrayOf(
         Manifest.permission.CAMERA,
@@ -44,6 +47,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // SharedPreferences 초기화
+        sharedPreferences = getSharedPreferences("MelpikPrefs", Context.MODE_PRIVATE)
 
         // FrameLayout으로 WebView와 ProgressBar(스플래시) 겹치기
         val frameLayout = FrameLayout(this)
@@ -99,6 +105,8 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 progressBar.visibility = FrameLayout.GONE
+                // 페이지 로딩 완료 시 로그인 상태 확인 및 전달
+                checkLoginStatus()
             }
         }
 
@@ -111,11 +119,99 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // JavaScript 인터페이스 추가 (웹뷰에서 네이티브 앱으로 메시지 전달)
+        webView.addJavascriptInterface(object {
+            @android.webkit.JavascriptInterface
+            fun postMessage(message: String) {
+                try {
+                    val jsonMessage = JSONObject(message)
+                    when (jsonMessage.optString("type")) {
+                        "saveLoginInfo" -> {
+                            val loginData = jsonMessage.optJSONObject("detail")
+                            if (loginData != null) {
+                                saveLoginInfo(loginData)
+                            }
+                        }
+                        "clearLoginInfo" -> {
+                            clearLoginInfo()
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("메시지 처리 실패: $e")
+                }
+            }
+        }, "Android")
+
         // 권한 요청
         requestPermissionsIfNeeded()
 
         // 웹사이트 로드
         webView.loadUrl(url)
+    }
+
+    // 로그인 정보 저장 (AsyncStorage 대신 SharedPreferences 사용)
+    private fun saveLoginInfo(loginData: JSONObject) {
+        try {
+            val editor = sharedPreferences.edit()
+            editor.putString("accessToken", loginData.optString("token"))
+            editor.putString("refreshToken", loginData.optString("refreshToken"))
+            editor.putString("userEmail", loginData.optString("email"))
+            editor.apply()
+
+            // 웹뷰에 로그인 정보 전달
+            sendLoginInfoToWebView(true, loginData)
+        } catch (error: Exception) {
+            println("로그인 정보 저장 실패: $error")
+        }
+    }
+
+    // 앱 시작 시 토큰 확인
+    private fun checkLoginStatus() {
+        try {
+            val token = sharedPreferences.getString("accessToken", null)
+            if (token != null) {
+                val loginData = JSONObject().apply {
+                    put("token", token)
+                    put("refreshToken", sharedPreferences.getString("refreshToken", ""))
+                    put("email", sharedPreferences.getString("userEmail", ""))
+                }
+                
+                // 웹뷰에 로그인 상태 전달
+                sendLoginInfoToWebView(true, loginData)
+            }
+        } catch (error: Exception) {
+            println("로그인 상태 확인 실패: $error")
+        }
+    }
+
+    // 웹뷰에 로그인 정보 전달
+    private fun sendLoginInfoToWebView(isLoggedIn: Boolean, userInfo: JSONObject) {
+        val message = JSONObject().apply {
+            put("type", "loginInfoReceived")
+            put("detail", JSONObject().apply {
+                put("isLoggedIn", isLoggedIn)
+                put("userInfo", userInfo)
+            })
+        }
+
+        runOnUiThread {
+            webView.evaluateJavascript(
+                "window.postMessage(${message}, '*');",
+                null
+            )
+        }
+    }
+
+    // 로그인 정보 삭제 (로그아웃 시)
+    private fun clearLoginInfo() {
+        val editor = sharedPreferences.edit()
+        editor.remove("accessToken")
+        editor.remove("refreshToken")
+        editor.remove("userEmail")
+        editor.apply()
+
+        // 웹뷰에 로그아웃 상태 전달
+        sendLoginInfoToWebView(false, JSONObject())
     }
 
     // 외부 URL 처리 (전화, 이메일, 외부 링크 등)

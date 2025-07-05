@@ -11,8 +11,8 @@ android {
         applicationId = "com.youminki.testhybrid"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "9.0"
+        versionCode = 10
+        versionName = "9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
